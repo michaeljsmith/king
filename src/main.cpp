@@ -20,11 +20,14 @@ namespace king
 		int x, y;
 	};
 
+	inline position operator+(position const& p, direction const& d)
+	{
+		return position(p.x + d.x, p.y + d.y);
+	}
+
 	class actor
 	{
 	public:
-		virtual int get_id() const = 0;
-
 		virtual king::position get_position() const = 0;
 		virtual void set_position(king::position const& position) = 0;
 	};
@@ -32,12 +35,19 @@ namespace king
 	class character : public actor
 	{
 	public:
-		virtual int get_id() const = 0;
+		character(king::position const& position): position(position) {}
 
-		virtual king::position get_position() const = 0;
-		virtual void set_position(king::position const& position) = 0;
+		// actor
+		virtual king::position get_position() const
+		{
+			return this->position;
+		}
 
-		int id;
+		virtual void set_position(king::position const& position)
+		{
+			this->position = position;
+		}
+
 		king::position position;
 	};
 
@@ -94,27 +104,6 @@ namespace king
 		event_map events;
 	};
 
-	class end_simulation_task : public event
-	{
-	public:
-		end_simulation_task(bool& exit_flag, int time)
-			: exit_flag(exit_flag) {}
-
-		// event
-		virtual int get_time() const
-		{
-			return this->time;
-		}
-
-		virtual void handle()
-		{
-			this->exit_flag = true;
-		}
-
-		bool& exit_flag;
-		int time;
-	};
-
 	class simulation : public clock
 	{
 	public:
@@ -134,6 +123,56 @@ namespace king
 
 		int time;
 	};
+
+	class move_task : public event
+	{
+	public:
+		move_task(boost::shared_ptr<king::actor> const& actor,
+				direction const& direction, int start_time, int duration)
+			: actor(actor), direction(direction),
+			start_time(start_time), duration(duration) {}
+
+		// event
+		virtual int get_time() const
+		{
+			return this->start_time + this->duration;
+		}
+
+		virtual void handle()
+		{
+			king::position new_position = this->actor->get_position() +
+					this->direction;
+			this->actor->set_position(new_position);
+
+			printf("Actor moved to <%d,%d>\n", new_position.x, new_position.y);
+		}
+
+		boost::shared_ptr<king::actor> actor;
+		king::direction direction;
+		int start_time;
+		int duration;
+	};
+
+	class end_simulation_task : public event
+	{
+	public:
+		end_simulation_task(bool& exit_flag, int time)
+			: exit_flag(exit_flag), time(time) {}
+
+		// event
+		virtual int get_time() const
+		{
+			return this->time;
+		}
+
+		virtual void handle()
+		{
+			this->exit_flag = true;
+		}
+
+		bool& exit_flag;
+		int time;
+	};
 }
 
 int main(int /*argc*/, char* /*argv*/[])
@@ -143,8 +182,17 @@ int main(int /*argc*/, char* /*argv*/[])
 	king::simulation simulation(0);
 	king::event_manager event_manager(&simulation);
 
-	boost::shared_ptr<king::event> exit_event(new king::end_simulation_task(should_exit, INT_MAX));
+	boost::shared_ptr<king::event> exit_event(
+			new king::end_simulation_task(should_exit, INT_MAX));
 	event_manager.add_event(exit_event);
+
+	boost::shared_ptr<king::character> test_guy(
+			new king::character(king::position(2, 2)));
+
+	boost::shared_ptr<king::move_task> move_task(new king::move_task(
+			test_guy, king::direction(1, 0), 0, 100));
+
+	event_manager.add_event(move_task);
 
 	while (!should_exit)
 		event_manager.handle_next_event();
